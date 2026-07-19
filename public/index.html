@@ -113,7 +113,7 @@
   .tree-children{margin-left:16px; display:none;}
   .tree-children.expanded{display:block;}
 
-  .listing{flex:1; display:flex; flex-direction:column; min-width:0; background:var(--paper); overflow-y:auto; padding-bottom:0; transition:padding-bottom .18s ease;}
+  .listing{flex:1; display:flex; flex-direction:column; min-width:0; background:var(--paper); overflow-y:auto; padding-bottom:0; transition:padding-bottom .18s ease; position:relative;}
   #app.has-selection .listing{padding-bottom:52px;}
   table{width:100%; border-collapse:collapse; font-size:13px;}
   thead th{
@@ -334,6 +334,54 @@
   .pc-stats{white-space:nowrap; flex:0 0 auto;}
   .progress-card.error .pc-file{color:var(--red);}
   .progress-card.done .pc-file{color:#2f8f5f;}
+  .progress-card{cursor:pointer;}
+  .progress-card .pc-dismiss{cursor:pointer;}
+
+  /* ---------- Progress detail panel (click a notification to open) ---------- */
+  .pp-backdrop{position:fixed; inset:0; z-index:145; background:transparent;}
+  .progress-panel{
+    position:fixed; right:16px; bottom:44px; z-index:160; width:360px; max-width:90vw;
+    max-height:min(72vh, 560px); background:var(--panel); border:1px solid var(--line);
+    border-radius:10px; box-shadow:0 20px 60px rgba(0,0,0,.32); display:flex; flex-direction:column;
+    overflow:hidden; animation:pc-in .16s ease;
+  }
+  .pp-head{padding:12px 14px; border-bottom:1px solid var(--line); display:flex; align-items:center; justify-content:space-between; gap:8px;}
+  .pp-head h3{margin:0; font-size:13.5px; font-weight:600; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
+  .pp-head .x{cursor:pointer; color:var(--ink-soft); font-size:16px; background:none; border:none; flex:0 0 auto;}
+  .pp-summary{padding:12px 14px; border-bottom:1px solid var(--line);}
+  .pp-bar-track{height:7px; border-radius:4px; background:#eeece6; overflow:hidden;}
+  .pp-bar-fill{height:100%; width:0%; background:var(--teal); border-radius:4px; transition:width .18s ease;}
+  .progress-panel.error .pp-bar-fill{background:var(--red);}
+  .progress-panel.done .pp-bar-fill{background:#5cc298;}
+  .pp-summary-meta{display:flex; align-items:center; justify-content:space-between; gap:8px; margin-top:7px; font-size:11.5px; color:var(--ink-soft);}
+  .pp-current{margin-top:6px; font-size:11.5px; font-family:var(--mono); color:var(--ink-soft); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+  .pp-current .lbl{font-family:var(--sans); color:var(--ink-soft);}
+  .pp-lists{overflow-y:auto; flex:1;}
+  .pp-section{padding:8px 14px;}
+  .pp-section + .pp-section{border-top:1px solid var(--line);}
+  .pp-section-title{font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:.4px; color:var(--ink-soft); margin-bottom:5px; display:flex; align-items:center; justify-content:space-between;}
+  .pp-item{display:flex; align-items:center; gap:7px; padding:3px 0; font-size:12px; font-family:var(--mono);}
+  .pp-item .pi-name{overflow:hidden; text-overflow:ellipsis; white-space:nowrap; flex:1;}
+  .pp-item .pi-icon{flex:0 0 auto; width:14px; text-align:center; font-family:var(--sans);}
+  .pp-item.st-success .pi-icon{color:#2f8f5f;}
+  .pp-item.st-failed .pi-icon, .pp-item.st-failed .pi-name{color:var(--red);}
+  .pp-item.st-skipped .pi-icon, .pp-item.st-skipped .pi-name{color:var(--amber-dim);}
+  .pp-item.st-processing .pi-icon{color:var(--teal);}
+  .pp-item.st-pending .pi-icon, .pp-item.st-pending .pi-name{color:var(--ink-soft);}
+  .pp-empty{font-size:11.5px; color:var(--ink-soft); padding:2px 0;}
+
+  /* ---------- Drag-and-drop upload overlay ---------- */
+  .drop-overlay{
+    position:absolute; inset:0; z-index:50; display:none; align-items:center; justify-content:center;
+    background:rgba(47,143,134,.08); border:2px dashed var(--teal); border-radius:6px; margin:6px;
+  }
+  .drop-overlay.active{display:flex;}
+  .drop-overlay-inner{
+    background:var(--panel); border:1px solid var(--teal); border-radius:8px; padding:14px 20px;
+    font-size:13.5px; font-weight:600; color:var(--ink); box-shadow:0 10px 30px rgba(0,0,0,.15);
+    display:flex; align-items:center; gap:8px;
+  }
+  .drop-overlay-inner .icon{font-size:18px;}
 </style>
 </head>
 <body>
@@ -393,6 +441,9 @@
       <div class="empty-state" id="emptyState" style="display:none;">
         <b id="emptyStateTitle">Not connected</b>
         <span id="emptyStateSub">Open Site Manager to connect to an FTP or SFTP server.</span>
+      </div>
+      <div class="drop-overlay" id="dropOverlay">
+        <div class="drop-overlay-inner"><span class="icon">⇧</span><span>Drop to upload to <b id="dropOverlayPath">/</b></span></div>
       </div>
     </section>
   </div>
@@ -527,6 +578,28 @@
 </div>
 
 <div class="progress-stack" id="progressStack"></div>
+<div class="pp-backdrop" id="ppBackdrop" style="display:none;"></div>
+<div class="progress-panel" id="progressPanel" style="display:none;">
+  <div class="pp-head">
+    <h3 id="ppTitle">Progress</h3>
+    <button class="x" id="ppClose">✕</button>
+  </div>
+  <div class="pp-summary">
+    <div class="pp-bar-track"><div class="pp-bar-fill" id="ppBarFill"></div></div>
+    <div class="pp-summary-meta"><span id="ppPercent">0%</span><span id="ppStats"></span></div>
+    <div class="pp-current"><span class="lbl">Current: </span><span id="ppCurrent">—</span></div>
+  </div>
+  <div class="pp-lists">
+    <div class="pp-section">
+      <div class="pp-section-title"><span>Completed</span><span id="ppCompletedCount">0</span></div>
+      <div id="ppCompletedList"><div class="pp-empty">Nothing completed yet.</div></div>
+    </div>
+    <div class="pp-section">
+      <div class="pp-section-title"><span>Remaining</span><span id="ppRemainingCount">0</span></div>
+      <div id="ppRemainingList"><div class="pp-empty">Nothing pending.</div></div>
+    </div>
+  </div>
+</div>
 <div class="toast" id="toast"></div>
 
 <script>
@@ -581,6 +654,9 @@ function fmtSize(n){
    progress update isn't missed. */
 const Progress = (function(){
   const stack = document.getElementById("progressStack");
+  const panel = document.getElementById("progressPanel");
+  const backdrop = document.getElementById("ppBackdrop");
+  let openOpId = null;
 
   function newOpId(){
     if(window.crypto && crypto.randomUUID) return crypto.randomUUID();
@@ -623,7 +699,65 @@ const Progress = (function(){
     el.querySelector(".pc-stats").textContent = bits.join(" · ");
   }
 
-  const cards = new Map(); // opId -> {es, el}
+  const cards = new Map(); // opId -> {es, el, title, state}
+
+  const statusIcon = { success:"✓", failed:"✕", skipped:"–", processing:"…", pending:"○" };
+  const statusLabel = { success:"Added", failed:"Failed", skipped:"Skipped", processing:"Processing", pending:"Pending" };
+
+  function itemRow(it){
+    const status = it.status || "pending";
+    const title = it.reason ? (statusLabel[status]||status) + ": " + it.reason : (statusLabel[status]||status);
+    return '<div class="pp-item st-'+escapeHtml(status)+'" title="'+escapeHtml(title)+'">' +
+      '<span class="pi-icon">'+(statusIcon[status]||"○")+'</span>' +
+      '<span class="pi-name">'+escapeHtml(it.name || it.path || "")+'</span>' +
+      '</div>';
+  }
+
+  // Renders the click-to-open detail panel for whichever op is currently
+  // shown (openOpId). Called both when the panel is first opened and on
+  // every subsequent SSE update for that op, so it stays live while open.
+  function renderPanel(title, s){
+    panel.classList.toggle("error", s.status === "error");
+    panel.classList.toggle("done", s.status === "done");
+    document.getElementById("ppTitle").textContent = title;
+    const pct = Math.max(0, Math.min(100, s.percent || 0));
+    document.getElementById("ppBarFill").style.width = pct + "%";
+    document.getElementById("ppPercent").textContent = s.status === "error" ? (s.error || "Failed") : pct + "%";
+
+    const bits = [];
+    if(s.total) bits.push(s.processed + " / " + s.total);
+    if(s.bytesTotal) bits.push(fmtSize(s.bytesProcessed) + " / " + fmtSize(s.bytesTotal));
+    document.getElementById("ppStats").textContent = bits.join(" · ");
+    document.getElementById("ppCurrent").textContent =
+      s.status === "done" ? "Done" : s.status === "error" ? (s.error || "Failed") : (s.currentFile || phaseLabel(s));
+
+    const items = Array.isArray(s.items) ? s.items : [];
+    const completed = items.filter(it => it.status && it.status !== "pending" && it.status !== "processing");
+    const remaining = items.filter(it => !it.status || it.status === "pending" || it.status === "processing");
+
+    document.getElementById("ppCompletedCount").textContent = completed.length;
+    document.getElementById("ppRemainingCount").textContent = remaining.length;
+    document.getElementById("ppCompletedList").innerHTML =
+      completed.length ? completed.map(itemRow).join("") : '<div class="pp-empty">Nothing completed yet.</div>';
+    document.getElementById("ppRemainingList").innerHTML =
+      remaining.length ? remaining.map(itemRow).join("") : '<div class="pp-empty">Nothing pending.</div>';
+  }
+
+  function openPanel(opId){
+    const c = cards.get(opId);
+    if(!c) return;
+    openOpId = opId;
+    renderPanel(c.title, c.state || {status:"pending", phase:"waiting", percent:0});
+    panel.style.display = "flex";
+    backdrop.style.display = "block";
+  }
+  function closePanel(){
+    openOpId = null;
+    panel.style.display = "none";
+    backdrop.style.display = "none";
+  }
+  document.getElementById("ppClose").addEventListener("click", closePanel);
+  backdrop.addEventListener("click", closePanel);
 
   function start(title){
     const opId = newOpId();
@@ -642,21 +776,28 @@ const Progress = (function(){
       try{ c.es.close(); }catch(e){}
       c.el.remove();
       cards.delete(opId);
+      if(openOpId === opId) closePanel();
     }
-    el.querySelector(".pc-dismiss").addEventListener("click", closeCard);
+    el.querySelector(".pc-dismiss").addEventListener("click", (ev)=>{ ev.stopPropagation(); closeCard(); });
+    // Clicking the notification (anywhere but the dismiss button) opens the
+    // live detail panel for this operation.
+    el.addEventListener("click", ()=> openPanel(opId));
 
     const es = new EventSource("/api/files/progress/" + encodeURIComponent(opId));
     es.onmessage = (ev) => {
       let s;
       try{ s = JSON.parse(ev.data); }catch(e){ return; }
+      const c = cards.get(opId);
+      if(c) c.state = s;
       render(el, s);
+      if(openOpId === opId) renderPanel(title, s);
       if(s.status === "done" || s.status === "error"){
         try{ es.close(); }catch(e){}
         el.querySelector(".pc-dismiss").style.display = "inline-block";
         if(s.status === "done") setTimeout(closeCard, 3000);
       }
     };
-    cards.set(opId, {es, el, close: closeCard});
+    cards.set(opId, {es, el, title, close: closeCard, state:null});
     return opId;
   }
 
@@ -666,8 +807,11 @@ const Progress = (function(){
     const c = cards.get(opId);
     if(!c) return;
     try{ c.es.close(); }catch(e){}
-    render(c.el, {status:"error", error: message});
+    const s = {status:"error", error: message};
+    c.state = s;
+    render(c.el, s);
     c.el.querySelector(".pc-dismiss").style.display = "inline-block";
+    if(openOpId === opId) renderPanel(c.title, s);
   }
 
   return { start, fail };
@@ -1193,10 +1337,8 @@ document.getElementById("menuUploadFolder").addEventListener("click", ()=> docum
 document.getElementById("fileInputFiles").addEventListener("change", (e)=>{ handleFilesUpload(e.target.files); e.target.value=""; });
 document.getElementById("fileInputFolder").addEventListener("change", (e)=>{ handleFilesUpload(e.target.files); e.target.value=""; });
 
-async function handleFilesUpload(fileList){
-  if(!connected || !fileList || !fileList.length) return;
-  const files = Array.from(fileList);
-  const relPaths = files.map(f => f.webkitRelativePath || f.name);
+async function uploadFileList(files, relPaths){
+  if(!connected || !files || !files.length) return;
   const fd = new FormData();
   files.forEach(f => fd.append("files", f));
   fd.append("relPaths", JSON.stringify(relPaths));
@@ -1211,6 +1353,104 @@ async function handleFilesUpload(fileList){
     else log("Uploaded " + res.results.length + " item(s).");
   }catch(e){ Progress.fail(opId, e.message); toast(e.message, true); log("Upload failed: " + e.message); }
 }
+
+async function handleFilesUpload(fileList){
+  if(!connected || !fileList || !fileList.length) return;
+  const files = Array.from(fileList);
+  const relPaths = files.map(f => f.webkitRelativePath || f.name);
+  await uploadFileList(files, relPaths);
+}
+
+/* ---------- drag-and-drop upload ----------
+   Dropped folders arrive as FileSystemEntry objects (via
+   item.webkitGetAsEntry()), not plain File objects, so folder structure
+   has to be walked by hand — there's no webkitRelativePath to fall back
+   on the way there is with the <input webkitdirectory> picker. */
+function readDirEntries(dirReader){
+  // reader.readEntries() only returns a batch at a time (spec quirk, not
+  // a bug) — must keep calling it until it returns an empty array.
+  return new Promise((resolve) => {
+    const all = [];
+    function readBatch(){
+      dirReader.readEntries((batch) => {
+        if(!batch.length){ resolve(all); return; }
+        all.push(...batch);
+        readBatch();
+      }, () => resolve(all));
+    }
+    readBatch();
+  });
+}
+
+function entryToFile(fileEntry){
+  return new Promise((resolve) => {
+    fileEntry.file(resolve, () => resolve(null));
+  });
+}
+
+async function walkEntry(entry, prefix){
+  if(entry.isFile){
+    const file = await entryToFile(entry);
+    return file ? [{ file, relPath: prefix + entry.name }] : [];
+  }
+  if(entry.isDirectory){
+    const children = await readDirEntries(entry.createReader());
+    const nested = await Promise.all(children.map(child => walkEntry(child, prefix + entry.name + "/")));
+    return nested.flat();
+  }
+  return [];
+}
+
+async function collectDroppedItems(dataTransfer){
+  if(dataTransfer.items && dataTransfer.items.length && dataTransfer.items[0].webkitGetAsEntry){
+    const entries = Array.from(dataTransfer.items)
+      .map(it => it.webkitGetAsEntry && it.webkitGetAsEntry())
+      .filter(Boolean);
+    const groups = await Promise.all(entries.map(e => walkEntry(e, "")));
+    return groups.flat();
+  }
+  // Fallback for browsers without the FileSystem entry API — plain file
+  // drops still work, just without folder support.
+  if(dataTransfer.files && dataTransfer.files.length){
+    return Array.from(dataTransfer.files).map(f => ({ file: f, relPath: f.name }));
+  }
+  return [];
+}
+
+const listingPane = document.querySelector(".listing");
+const dropOverlay = document.getElementById("dropOverlay");
+let dragDepth = 0;
+
+// A dragover/drop that lands outside the listing pane would otherwise make
+// the browser navigate to/open the dropped file, so swallow it everywhere.
+["dragenter","dragover","drop"].forEach(evt => {
+  document.addEventListener(evt, (e) => e.preventDefault());
+});
+
+listingPane.addEventListener("dragenter", (e)=>{
+  e.preventDefault();
+  if(!connected) return;
+  dragDepth++;
+  document.getElementById("dropOverlayPath").textContent = currentPath;
+  dropOverlay.classList.add("active");
+});
+listingPane.addEventListener("dragover", (e)=>{ e.preventDefault(); });
+listingPane.addEventListener("dragleave", (e)=>{
+  e.preventDefault();
+  dragDepth = Math.max(0, dragDepth - 1);
+  if(dragDepth === 0) dropOverlay.classList.remove("active");
+});
+listingPane.addEventListener("drop", async (e)=>{
+  e.preventDefault();
+  dragDepth = 0;
+  dropOverlay.classList.remove("active");
+  if(!connected){ toast("Connect to a site first", true); return; }
+  const dt = e.dataTransfer;
+  if(!dt) return;
+  const items = await collectDroppedItems(dt);
+  if(!items.length) return;
+  await uploadFileList(items.map(i=>i.file), items.map(i=>i.relPath));
+});
 
 /* ===================== DOWNLOAD AS ZIP ===================== */
 document.getElementById("btnDownloadZip").addEventListener("click", async ()=>{
@@ -1245,12 +1485,14 @@ document.getElementById("btnDownloadZip").addEventListener("click", async ()=>{
     const summaryLine = "ZIP ready — " + s.filesAdded + " file(s), " + s.foldersAdded + " folder(s) verified and included.";
     if(s.itemsFailed){
       log(summaryLine + " " + s.itemsFailed + " item(s) could not be included.");
+      toast("ZIP ready — download starting (" + s.itemsFailed + " item(s) skipped)");
       showResultModal(
         "ZIP ready with " + s.itemsFailed + " skipped item(s)",
         (s.failed||[]).map(f=>({path:f.path, error:f.reason}))
       );
     } else {
       log(summaryLine);
+      toast("ZIP ready — download starting");
     }
   }catch(e){ Progress.fail(opId, e.message); toast(e.message, true); log("Download failed: " + e.message); }
 });

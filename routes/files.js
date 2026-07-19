@@ -426,6 +426,16 @@ router.post("/upload", trackReceiveProgress, upload.array("files", 500), async (
     const pctForTransfer = (bytesDone) =>
       totalBytes ? 50 + Math.min(50, Math.round((bytesDone / totalBytes) * 50)) : 50;
 
+    // Per-file tracking for the progress panel's Completed/Remaining lists —
+    // same shape as the ZIP route uses, so the click-to-open panel works
+    // for uploads (including drag-and-drop) without any client-side changes.
+    const relPathList = files.map((f, i) => (relPaths[i] || f.originalname).replace(/^\/+/, ""));
+    const trackedItems = relPathList.map((rel) => ({ path: rel, name: rel.split("/").pop() || rel, type: "file", status: "pending" }));
+    function publishItems(extra) {
+      if (!opId) return;
+      progress.update(opId, Object.assign({ items: trackedItems }, extra || {}));
+    }
+
     if (opId) {
       progress.update(opId, {
         phase: "transferring",
@@ -435,15 +445,17 @@ router.post("/upload", trackReceiveProgress, upload.array("files", 500), async (
         bytesProcessed: 0,
         percent: pctForTransfer(0),
       });
+      publishItems();
     }
 
     let bytesDoneSoFar = 0;
     for (let i = 0; i < files.length; i++) {
       const file = files[i];
-      const rel = (relPaths[i] || file.originalname).replace(/^\/+/, "");
+      const rel = relPathList[i];
       const remotePath = joinPath(targetDir, rel);
       const remoteDir = remotePath.substring(0, remotePath.lastIndexOf("/")) || "/";
-      if (opId) progress.update(opId, { currentFile: rel, processed: i, percent: pctForTransfer(bytesDoneSoFar) });
+      trackedItems[i].status = "processing";
+      publishItems({ currentFile: rel, processed: i, percent: pctForTransfer(bytesDoneSoFar) });
       try {
         if (remoteDir !== targetDir && !madeDirs.has(remoteDir)) {
           await adapter.ensureDirRecursive(remoteDir);
@@ -463,13 +475,14 @@ router.post("/upload", trackReceiveProgress, upload.array("files", 500), async (
         await adapter.upload(tracked, remotePath);
         bytesDoneSoFar += file.size || 0;
         results.push({ name: rel, ok: true });
+        trackedItems[i].status = "success";
       } catch (e) {
         bytesDoneSoFar += file.size || 0;
         results.push({ name: rel, ok: false, error: e.message });
+        trackedItems[i].status = "failed";
+        trackedItems[i].reason = e.message;
       }
-      if (opId) {
-        progress.update(opId, { processed: i + 1, bytesProcessed: bytesDoneSoFar, percent: pctForTransfer(bytesDoneSoFar) });
-      }
+      publishItems({ processed: i + 1, bytesProcessed: bytesDoneSoFar, percent: pctForTransfer(bytesDoneSoFar) });
     }
     cleanup();
     const failCount = results.filter((r) => !r.ok).length;
@@ -540,6 +553,31 @@ router.post("/download-zip", async (req, res) => {
   const opId = (req.body && req.body.opId) || null;
   const token = opId || newZipToken();
   if (opId) progress.create(opId, { label: "Preparing ZIP", kind: "zip", phase: "verifying" });
+
+  // Per-item tracking for the ZIP progress panel: every folder/file we know
+  // about gets one entry here (keyed by remote path) with a live status —
+  // pending -> processing -> success/skipped/failed. The panel derives its
+  // "completed" and "remaining" lists by filtering this single array, so we
+  // just push the whole snapshot to progress on every change.
+  const trackedItems = new Map(); // remotePath -> { path, name, type, status, reason }
+  function trackItem(remotePath, name, type, status, reason) {
+    trackedItems.set(remotePath, { path: remotePath, name, type, status, reason: reason || null });
+  }
+  function setItemStatus(remotePath, status, reason) {
+    const it = trackedItems.get(remotePath);
+    if (it) {
+      it.status = status;
+      if (reason) it.reason = reason;
+    }
+  }
+  function publishItems(extra) {
+    if (!opId) return;
+    progress.update(opId, Object.assign({ items: Array.from(trackedItems.values()) }, extra || {}));
+  }
+  function baseName(p) {
+    return String(p || "").split("/").filter(Boolean).pop() || p;
+  }
+
   try {
     const adapter = cm.requireAdapter(sid(req));
     const items = (req.body && req.body.items) || [];
@@ -561,7 +599,9 @@ router.post("/download-zip", async (req, res) => {
           await adapter.list(item.path);
           verifiedItems.push(item);
         } catch (e) {
-          failed.push({ path: item.path, type: "folder", reason: "Not found or inaccessible: " + e.message });
+          const reason = "Not found or inaccessible: " + e.message;
+          failed.push({ path: item.path, type: "folder", reason });
+          trackItem(item.path, item.name || baseName(item.path), "folder", "skipped", reason);
         }
       } else {
         try {
@@ -569,30 +609,43 @@ router.post("/download-zip", async (req, res) => {
           const name = item.path.split("/").filter(Boolean).pop();
           const found = siblings.find((s) => s.name === name && s.type !== "folder");
           if (!found) {
-            failed.push({ path: item.path, type: "file", reason: "File no longer exists on the server." });
+            const reason = "File no longer exists on the server.";
+            failed.push({ path: item.path, type: "file", reason });
+            trackItem(item.path, item.name || baseName(item.path), "file", "skipped", reason);
           } else {
             verifiedItems.push({ ...item, size: found.size != null ? found.size : item.size });
           }
         } catch (e) {
-          failed.push({ path: item.path, type: "file", reason: "Could not verify: " + e.message });
+          const reason = "Could not verify: " + e.message;
+          failed.push({ path: item.path, type: "file", reason });
+          trackItem(item.path, item.name || baseName(item.path), "file", "skipped", reason);
         }
       }
       if (opId) progress.update(opId, { phase: "verifying", currentFile: item.path, foundCount: verifiedItems.length });
     }
+    publishItems();
 
     // Phase 1: walk every verified folder so we know the full file list,
     // folder list, and byte count before writing a single byte of the zip.
     // A listing failure on one subfolder is recorded (that folder's
     // contents will be incomplete) but never aborts the rest of the scan.
+    // Every folder/file discovered here is immediately tracked as "pending"
+    // so the progress panel's remaining-items list fills in live as the
+    // scan goes, well before any bytes are actually zipped.
     const manifest = []; // { remotePath, entryName, size }
     const folderList = []; // { remotePath, entryName } — every folder, top-level + nested
     async function scanFolder(remotePath, entryName) {
       folderList.push({ remotePath, entryName: entryName.replace(/\/?$/, "/") });
+      trackItem(remotePath, baseName(remotePath), "folder", "pending");
+      publishItems({ phase: "scanning", foundCount: manifest.length + folderList.length, currentFile: remotePath });
       let entries;
       try {
         entries = await adapter.list(remotePath);
       } catch (e) {
-        failed.push({ path: remotePath, type: "folder", reason: "Could not list contents: " + e.message });
+        const reason = "Could not list contents: " + e.message;
+        failed.push({ path: remotePath, type: "folder", reason });
+        setItemStatus(remotePath, "failed", reason);
+        publishItems();
         return;
       }
       for (const e of entries) {
@@ -602,7 +655,8 @@ router.post("/download-zip", async (req, res) => {
           await scanFolder(childRemote, childEntryName);
         } else {
           manifest.push({ remotePath: childRemote, entryName: childEntryName, size: e.size || 0 });
-          if (opId) progress.update(opId, { phase: "scanning", foundCount: manifest.length + folderList.length, currentFile: childRemote });
+          trackItem(childRemote, e.name, "file", "pending");
+          publishItems({ phase: "scanning", foundCount: manifest.length + folderList.length, currentFile: childRemote });
         }
       }
     }
@@ -611,7 +665,8 @@ router.post("/download-zip", async (req, res) => {
         await scanFolder(item.path, item.name);
       } else {
         manifest.push({ remotePath: item.path, entryName: item.name, size: item.size || 0 });
-        if (opId) progress.update(opId, { phase: "scanning", foundCount: manifest.length + folderList.length, currentFile: item.path });
+        trackItem(item.path, item.name, "file", "pending");
+        publishItems({ phase: "scanning", foundCount: manifest.length + folderList.length, currentFile: item.path });
       }
     }
 
@@ -647,13 +702,16 @@ router.post("/download-zip", async (req, res) => {
     for (const folder of folderList) {
       archive.append(null, { name: folder.entryName });
       processLog.push({ path: folder.remotePath, type: "folder", status: "added" });
+      setItemStatus(folder.remotePath, "success");
       console.log("[zip " + token + "] added folder:", folder.remotePath);
     }
+    publishItems();
 
     let bytesDoneSoFar = 0;
     let processed = 0;
     for (const entry of manifest) {
-      if (opId) progress.update(opId, { currentFile: entry.remotePath, processed });
+      setItemStatus(entry.remotePath, "processing");
+      publishItems({ currentFile: entry.remotePath, processed });
       const result = await addFileToArchive(
         adapter,
         archive,
@@ -663,15 +721,17 @@ router.post("/download-zip", async (req, res) => {
       );
       if (result.success) {
         processLog.push({ path: entry.remotePath, type: "file", status: "added" });
+        setItemStatus(entry.remotePath, "success");
         console.log("[zip " + token + "] added file:", entry.remotePath);
       } else {
         processLog.push({ path: entry.remotePath, type: "file", status: "failed", reason: result.reason });
         failed.push({ path: entry.remotePath, type: "file", reason: result.reason });
+        setItemStatus(entry.remotePath, "failed", result.reason);
         console.warn("[zip " + token + "] failed file:", entry.remotePath, "-", result.reason);
       }
       bytesDoneSoFar += entry.size || 0;
       processed++;
-      if (opId) progress.update(opId, { processed, bytesProcessed: bytesDoneSoFar });
+      publishItems({ processed, bytesProcessed: bytesDoneSoFar });
     }
 
     if (opId) progress.update(opId, { phase: "verifying-archive", currentFile: null });
