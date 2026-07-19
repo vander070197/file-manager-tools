@@ -1,0 +1,25 @@
+{
+  "name": "web-file-manager",
+  "version": "1.0.0",
+  "description": "A FileZilla-style web file manager that opens real FTP/SFTP connections from a Node.js backend.",
+  "main": "server.js",
+  "type": "commonjs",
+  "scripts": {
+    "start": "node server.js",
+    "hash-password": "node scripts/hash-password.js"
+  },
+  "dependencies": {
+    "archiver": "^7.0.1",
+    "basic-ftp": "^5.0.5",
+    "bcryptjs": "^2.4.3",
+    "cookie-parser": "^1.4.6",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "express-session": "^1.18.0",
+    "multer": "^1.4.5-lts.1",
+    "ssh2-sftp-client": "^10.0.3"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

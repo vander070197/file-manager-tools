@@ -1,0 +1,1296 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>File Manager</title>
+<style>
+  :root{
+    --ink:#1c2127;
+    --ink-soft:#5b6472;
+    --paper:#faf9f7;
+    --panel:#ffffff;
+    --line:#e3e1dc;
+    --toolbar:#1e2530;
+    --toolbar-soft:#2a3341;
+    --toolbar-line:#38424f;
+    --toolbar-text:#cbd2db;
+    --amber:#e0973a;
+    --amber-dim:#c07f2c;
+    --teal:#2f8f86;
+    --teal-dim:#e6f2f1;
+    --red:#c65b4e;
+    --red-dim:#fbeae7;
+    --led-on:#e0973a;
+    --led-off:#3a4350;
+    --radius:6px;
+    --mono: 'IBM Plex Mono', 'SFMono-Regular', Consolas, monospace;
+    --sans: 'IBM Plex Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  }
+  @font-face{font-family:'IBM Plex Sans';src:local('Arial');}
+  *{box-sizing:border-box;}
+  html,body{height:100%;}
+  body{
+    margin:0; font-family:var(--sans); background:var(--paper); color:var(--ink);
+    font-size:13.5px; -webkit-font-smoothing:antialiased;
+  }
+  #app{display:flex; flex-direction:column; height:100vh;}
+
+  /* ---------- Top bar ---------- */
+  .topbar{
+    background:var(--toolbar); color:var(--toolbar-text);
+    display:flex; align-items:center; gap:14px;
+    padding:0 14px; height:52px; flex:0 0 auto;
+    border-bottom:1px solid var(--toolbar-line);
+  }
+  .brand{
+    display:flex; align-items:center; gap:8px; font-weight:600; color:#fff;
+    letter-spacing:.2px; padding-right:14px; border-right:1px solid var(--toolbar-line);
+    font-size:14.5px;
+  }
+  .brand .dot{width:9px;height:9px;border-radius:50%;background:var(--amber); box-shadow:0 0 0 3px rgba(224,151,58,.18);}
+  .toolbar{display:flex; align-items:center; gap:6px; flex:1;}
+  .tbtn{
+    background:transparent; border:1px solid transparent; color:var(--toolbar-text);
+    padding:7px 12px; border-radius:var(--radius); font-size:13px; cursor:pointer;
+    display:flex; align-items:center; gap:7px; font-family:var(--sans); white-space:nowrap;
+    transition:background .12s, color .12s;
+  }
+  .tbtn:hover:not(:disabled){background:var(--toolbar-soft); color:#fff;}
+  .tbtn:disabled{opacity:.35; cursor:not-allowed;}
+  .tbtn.primary{background:var(--amber); color:#231604; font-weight:600;}
+  .tbtn.primary:hover:not(:disabled){background:var(--amber-dim);}
+  .tbtn.danger:hover:not(:disabled){background:var(--red); color:#fff;}
+  .tb-sep{width:1px; align-self:stretch; margin:9px 2px; background:var(--toolbar-line);}
+  .dropdown{position:relative;}
+  .dropdown-menu{
+    position:absolute; top:calc(100% + 4px); left:0; background:var(--panel); color:var(--ink);
+    border:1px solid var(--line); border-radius:var(--radius); box-shadow:0 8px 24px rgba(0,0,0,.18);
+    min-width:180px; padding:5px; display:none; z-index:50;
+  }
+  .dropdown.open .dropdown-menu{display:block;}
+  .dropdown-menu button{
+    width:100%; text-align:left; background:none; border:none; padding:8px 10px; border-radius:4px;
+    font-size:13px; cursor:pointer; color:var(--ink); font-family:var(--sans);
+  }
+  .dropdown-menu button:hover{background:var(--teal-dim); color:var(--teal);}
+
+  .conn-status{
+    font-size:12px; color:var(--toolbar-text); display:flex; align-items:center; gap:7px;
+    padding-left:12px; border-left:1px solid var(--toolbar-line); white-space:nowrap;
+  }
+  .conn-status .pulse{width:7px;height:7px;border-radius:50%; background:var(--ink-soft);}
+  .conn-status.connected .pulse{background:#5cc298; box-shadow:0 0 0 3px rgba(92,194,152,.18);}
+
+  /* ---------- Breadcrumb ---------- */
+  .breadcrumb{
+    flex:0 0 auto; padding:9px 16px; background:var(--panel); border-bottom:1px solid var(--line);
+    font-family:var(--mono); font-size:12.5px; color:var(--ink-soft); display:flex; align-items:center; gap:4px;
+    overflow-x:auto;
+  }
+  .breadcrumb .seg{cursor:pointer; padding:2px 5px; border-radius:4px; white-space:nowrap;}
+  .breadcrumb .seg:hover{background:var(--teal-dim); color:var(--teal);}
+  .breadcrumb .seg.current{color:var(--ink); font-weight:600; cursor:default;}
+  .breadcrumb .seg.current:hover{background:none;}
+  .breadcrumb .slash{color:var(--line); }
+
+  /* ---------- Main split ---------- */
+  .main{flex:1; display:flex; min-height:0;}
+  .tree{
+    width:230px; flex:0 0 auto; background:var(--panel); border-right:1px solid var(--line);
+    overflow-y:auto; padding:10px 6px;
+  }
+  .tree-node{user-select:none;}
+  .tree-row{
+    display:flex; align-items:center; gap:6px; padding:5px 8px; border-radius:5px; cursor:pointer;
+    font-size:12.8px; white-space:nowrap;
+  }
+  .tree-row:hover{background:var(--teal-dim);}
+  .tree-row.active{background:var(--teal); color:#fff;}
+  .tree-row .caret{width:12px; text-align:center; font-size:10px; color:var(--ink-soft); flex:0 0 auto;}
+  .tree-row.active .caret{color:#fff;}
+  .tree-row .ficon{flex:0 0 auto;}
+  .tree-children{margin-left:16px; display:none;}
+  .tree-children.expanded{display:block;}
+
+  .listing{flex:1; display:flex; flex-direction:column; min-width:0; background:var(--paper); overflow-y:auto; padding-bottom:0; transition:padding-bottom .18s ease;}
+  #app.has-selection .listing{padding-bottom:52px;}
+  table{width:100%; border-collapse:collapse; font-size:13px;}
+  thead th{
+    position:sticky; top:0; background:var(--panel); text-align:left; padding:9px 10px;
+    border-bottom:1px solid var(--line); color:var(--ink-soft); font-weight:600; font-size:11.5px;
+    text-transform:uppercase; letter-spacing:.04em; z-index:1;
+  }
+  thead th.num{text-align:right;}
+  tbody tr{border-bottom:1px solid var(--line); cursor:pointer;}
+  tbody tr:hover{background:#f1efe9;}
+  tbody tr.selected{background:var(--teal-dim);}
+  tbody td{padding:7px 10px; vertical-align:middle;}
+  td.col-name{display:flex; align-items:center; gap:8px;}
+  td.col-size, th.num{text-align:right; font-family:var(--mono); color:var(--ink-soft); white-space:nowrap;}
+  td.col-perm{font-family:var(--mono); white-space:nowrap;}
+  td.col-mod{color:var(--ink-soft); white-space:nowrap; font-family:var(--mono); font-size:12px;}
+  .name-link{cursor:pointer;}
+  .name-link.folder:hover{text-decoration:underline; color:var(--teal);}
+  .fico{width:16px; height:16px; flex:0 0 auto;}
+  .perm-chip{display:inline-flex; gap:1px; font-size:12px;}
+  .perm-chip b{font-weight:600;}
+  .perm-r{color:#3f8f5f;} .perm-w{color:var(--amber-dim);} .perm-x{color:var(--red);} .perm-off{color:#c9c5bb;}
+  .locked-badge{
+    font-size:10px; color:var(--red); border:1px solid #f0c9c2; background:var(--red-dim);
+    padding:1px 5px; border-radius:9px; margin-left:6px; white-space:nowrap;
+  }
+  .empty-state{padding:60px 20px; text-align:center; color:var(--ink-soft);}
+  .empty-state b{display:block; color:var(--ink); font-size:15px; margin-bottom:4px;}
+
+  /* ---------- Status bar ---------- */
+  .statusbar{
+    flex:0 0 auto; height:30px; background:var(--toolbar); color:var(--toolbar-text); font-size:12px;
+    display:flex; align-items:center; justify-content:space-between; padding:0 14px; font-family:var(--mono);
+  }
+  #logMessage{opacity:.85;}
+
+  /* ---------- Selection action bar ----------
+     Fixed to the bottom of the viewport (not part of the normal flex flow),
+     so it can never be pushed off-screen by scrolling or by a tall listing.
+     It sits just above the status bar and only appears while 1+ items are
+     selected; it slides/fades away automatically otherwise. */
+  .selection-bar{
+    position:fixed; left:0; right:0; bottom:30px; height:52px;
+    background:var(--toolbar-soft); color:#fff; border-top:1px solid var(--toolbar-line);
+    display:flex; align-items:center; gap:8px; padding:0 16px;
+    box-shadow:0 -6px 18px rgba(0,0,0,.2); z-index:80;
+    transform:translateY(100%); opacity:0; visibility:hidden;
+    transition:transform .16s ease, opacity .16s ease, visibility 0s linear .16s;
+  }
+  .selection-bar.visible{
+    transform:translateY(0); opacity:1; visibility:visible;
+    transition:transform .16s ease, opacity .16s ease;
+  }
+  .selection-bar .sb-count{font-weight:600; white-space:nowrap; margin-right:4px;}
+  .selection-bar .sb-sep{width:1px; align-self:stretch; margin:11px 2px; background:var(--toolbar-line);}
+  .selection-bar .sb-spacer{flex:1;}
+  .selection-bar .tbtn{color:var(--toolbar-text);}
+  .selection-bar .tbtn:hover:not(:disabled){background:rgba(255,255,255,.1); color:#fff;}
+
+  /* ---------- Modals ---------- */
+  .overlay{
+    position:fixed; inset:0; background:rgba(20,22,26,.5); display:none;
+    align-items:center; justify-content:center; z-index:100;
+  }
+  .overlay.open{display:flex;}
+  .modal{
+    background:var(--panel); border-radius:10px; width:560px; max-width:92vw; max-height:86vh;
+    display:flex; flex-direction:column; box-shadow:0 20px 60px rgba(0,0,0,.3); overflow:hidden;
+  }
+  .modal.wide{width:760px;}
+  .modal-head{
+    padding:16px 20px; border-bottom:1px solid var(--line); display:flex; align-items:center; justify-content:space-between;
+  }
+  .modal-head h2{margin:0; font-size:16px;}
+  .modal-head .x{cursor:pointer; color:var(--ink-soft); font-size:18px; background:none; border:none;}
+  .modal-body{padding:18px 20px; overflow-y:auto;}
+  .modal-foot{padding:14px 20px; border-top:1px solid var(--line); display:flex; justify-content:flex-end; gap:8px;}
+  .btn{
+    padding:8px 15px; border-radius:6px; border:1px solid var(--line); background:#fff; cursor:pointer;
+    font-size:13px; font-family:var(--sans); color:var(--ink);
+  }
+  .btn:hover{background:#f2f0ea;}
+  .btn.primary{background:var(--teal); border-color:var(--teal); color:#fff; font-weight:600;}
+  .btn.primary:hover{background:#276f68;}
+  .btn.danger{background:var(--red); border-color:var(--red); color:#fff;}
+  .btn.danger:hover{background:#a94739;}
+  .btn:disabled{opacity:.45; cursor:not-allowed;}
+
+  .field{margin-bottom:12px;}
+  .field label{display:block; font-size:12px; color:var(--ink-soft); margin-bottom:4px; font-weight:600;}
+  .field input, .field select{
+    width:100%; padding:8px 10px; border:1px solid var(--line); border-radius:6px; font-size:13px;
+    font-family:var(--sans); background:#fff;
+  }
+  .field-row{display:flex; gap:10px;}
+  .field-row .field{flex:1;}
+
+  /* Site manager */
+  .sm-body{display:flex; gap:0; min-height:360px;}
+  .sm-list{width:190px; border-right:1px solid var(--line); padding-right:0; overflow-y:auto;}
+  .sm-site{padding:9px 12px; border-radius:6px; cursor:pointer; font-size:13px; margin:2px 8px 2px 0;}
+  .sm-site:hover{background:var(--teal-dim);}
+  .sm-site.active{background:var(--teal); color:#fff;}
+  .sm-form{flex:1; padding-left:18px;}
+  .sm-list-actions{display:flex; gap:6px; padding:8px 8px 0 0;}
+  .sm-list-actions button{flex:1; font-size:12px; padding:6px;}
+  .empty-sites{padding:16px 10px; color:var(--ink-soft); font-size:12.5px;}
+
+  /* CHMOD dip-switch panel */
+  .chmod-target{
+    background:#f5f3ee; border:1px solid var(--line); border-radius:8px; padding:10px 12px; margin-bottom:16px;
+    font-size:12.5px; color:var(--ink-soft);
+  }
+  .chmod-target b{color:var(--ink);}
+  .dip-panel{
+    background:var(--toolbar); border-radius:10px; padding:16px 18px; display:flex; gap:26px; justify-content:space-between;
+  }
+  .dip-group{flex:1; text-align:center;}
+  .dip-group .dip-label{color:var(--toolbar-text); font-size:11px; text-transform:uppercase; letter-spacing:.06em; margin-bottom:10px;}
+  .dip-switches{display:flex; gap:8px; justify-content:center;}
+  .dip-sw{display:flex; flex-direction:column; align-items:center; gap:5px; cursor:pointer;}
+  .dip-led{
+    width:22px; height:22px; border-radius:5px; background:var(--led-off); border:1px solid #232a34;
+    box-shadow:inset 0 2px 3px rgba(0,0,0,.4);
+    display:flex; align-items:center; justify-content:center; transition:background .1s;
+  }
+  .dip-sw.on .dip-led{background:var(--led-on); box-shadow:0 0 8px rgba(224,151,58,.6), inset 0 1px 1px rgba(255,255,255,.3);}
+  .dip-sw .dip-tag{font-size:10px; color:var(--toolbar-text); font-family:var(--mono);}
+  .octal-readout{
+    margin-top:16px; display:flex; align-items:center; gap:10px; justify-content:center;
+  }
+  .octal-readout input{
+    width:90px; text-align:center; font-family:var(--mono); font-size:20px; letter-spacing:.15em;
+    padding:8px; border:1px solid var(--line); border-radius:6px; font-weight:600;
+  }
+  .octal-readout .rwx-readout{font-family:var(--mono); font-size:15px; color:var(--ink-soft);}
+  .recursive-note{margin-top:14px; font-size:12px; color:var(--ink-soft);}
+
+  /* Confirm / result */
+  .result-item{padding:6px 0; border-bottom:1px solid var(--line); font-size:13px; display:flex; justify-content:space-between; gap:10px;}
+  .result-item:last-child{border-bottom:none;}
+  .result-item .why{color:var(--red); font-family:var(--mono); font-size:11.5px;}
+  .result-ok{color:#2f8f5f;}
+  .section-title{font-size:12px; font-weight:700; text-transform:uppercase; letter-spacing:.05em; color:var(--ink-soft); margin:14px 0 6px;}
+  .section-title:first-child{margin-top:0;}
+
+  .note{
+    font-size:12px; color:var(--ink-soft); background:#f5f3ee; border:1px dashed var(--line);
+    border-radius:6px; padding:8px 10px; margin-top:14px;
+  }
+  ::-webkit-scrollbar{width:9px; height:9px;}
+  ::-webkit-scrollbar-thumb{background:#d8d5cd; border-radius:5px;}
+</style>
+<style>
+  /* ---------- Login screen ---------- */
+  .login-wrap{
+    height:100vh; display:flex; align-items:center; justify-content:center; background:var(--paper);
+  }
+  .login-card{
+    width:340px; max-width:92vw; background:var(--panel); border:1px solid var(--line); border-radius:10px;
+    padding:28px 26px; box-shadow:0 20px 60px rgba(0,0,0,.12);
+  }
+  .login-card .brand{border:none; padding:0 0 18px; justify-content:center; color:var(--ink);}
+  .login-card .brand .dot{background:var(--amber);}
+  .login-error{
+    background:var(--red-dim); color:var(--red); border:1px solid #f0c9c2; border-radius:6px;
+    padding:8px 10px; font-size:12.5px; margin-bottom:12px; display:none;
+  }
+  .login-error.show{display:block;}
+  .login-card .btn.primary{width:100%; margin-top:6px; padding:10px;}
+  #app{display:none;}
+  #app.show{display:flex;}
+  .login-wrap.hide{display:none;}
+
+  /* ---------- Extra tree affordances ---------- */
+  .tree-row .spinner-mini{width:10px;height:10px;border:2px solid var(--line); border-top-color:var(--teal); border-radius:50%; animation:spin .7s linear infinite; flex:0 0 auto;}
+  @keyframes spin{to{transform:rotate(360deg);}}
+  .tree-empty{padding:6px 8px; font-size:12px; color:var(--ink-soft);}
+
+  .conn-status.busy .pulse{background:var(--amber); animation:pulse 1s ease-in-out infinite;}
+  @keyframes pulse{0%,100%{opacity:1;} 50%{opacity:.3;}}
+
+  .toast{
+    position:fixed; bottom:44px; right:16px; background:var(--ink); color:#fff; padding:10px 14px;
+    border-radius:8px; font-size:12.5px; box-shadow:0 10px 30px rgba(0,0,0,.25); z-index:200; opacity:0;
+    transform:translateY(6px); transition:opacity .15s, transform .15s; pointer-events:none;
+  }
+  .toast.show{opacity:1; transform:translateY(0);}
+  .toast.error{background:var(--red);}
+
+  /* ---------- Progress bar stack (uploads / downloads / zip / chmod) ---------- */
+  .progress-stack{
+    position:fixed; right:16px; bottom:44px; z-index:150;
+    display:flex; flex-direction:column-reverse; gap:8px;
+    width:300px; max-width:88vw; pointer-events:none;
+  }
+  .progress-card{
+    background:var(--panel); border:1px solid var(--line); border-radius:8px;
+    box-shadow:0 10px 30px rgba(0,0,0,.18); padding:10px 12px; pointer-events:auto;
+    animation:pc-in .16s ease;
+  }
+  @keyframes pc-in{from{opacity:0; transform:translateY(8px);} to{opacity:1; transform:translateY(0);}}
+  .pc-head{display:flex; align-items:center; justify-content:space-between; gap:8px; margin-bottom:7px;}
+  .pc-title{font-size:12.5px; font-weight:600; color:var(--ink); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+  .pc-dismiss{background:none; border:none; color:var(--ink-soft); cursor:pointer; font-size:13px; padding:0; line-height:1;}
+  .pc-bar-track{height:6px; border-radius:4px; background:#eeece6; overflow:hidden;}
+  .pc-bar-fill{height:100%; width:0%; background:var(--teal); border-radius:4px; transition:width .18s ease;}
+  .progress-card.error .pc-bar-fill{background:var(--red);}
+  .progress-card.done .pc-bar-fill{background:#5cc298;}
+  .progress-card.indeterminate .pc-bar-fill{
+    width:35% !important; background:linear-gradient(90deg, var(--teal-dim), var(--teal), var(--teal-dim));
+    animation:pc-indeterminate 1.1s ease-in-out infinite;
+  }
+  @keyframes pc-indeterminate{0%{margin-left:-35%;} 100%{margin-left:100%;}}
+  .pc-meta{display:flex; align-items:center; justify-content:space-between; gap:8px; margin-top:6px;
+    font-size:11.5px; color:var(--ink-soft);}
+  .pc-file{white-space:nowrap; overflow:hidden; text-overflow:ellipsis; font-family:var(--mono);}
+  .pc-stats{white-space:nowrap; flex:0 0 auto;}
+  .progress-card.error .pc-file{color:var(--red);}
+  .progress-card.done .pc-file{color:#2f8f5f;}
+</style>
+</head>
+<body>
+
+<div class="login-wrap" id="loginWrap">
+  <div class="login-card">
+    <div class="brand"><span class="dot"></span>File Manager</div>
+    <div class="login-error" id="loginError"></div>
+    <div class="field"><label>Username</label><input id="loginUser" autocomplete="username"></div>
+    <div class="field"><label>Password</label><input id="loginPass" type="password" autocomplete="current-password"></div>
+    <button class="btn primary" id="loginBtn">Log in</button>
+  </div>
+</div>
+
+<div id="app">
+
+  <div class="topbar">
+    <div class="brand"><span class="dot"></span>File Manager</div>
+    <div class="toolbar">
+      <button class="tbtn" id="btnSiteManager">⌘ Site Manager</button>
+      <div class="tb-sep"></div>
+      <div class="dropdown" id="uploadDropdown">
+        <button class="tbtn primary" id="btnUploadToggle" disabled>⇧ Upload ▾</button>
+        <div class="dropdown-menu">
+          <button id="menuUploadFiles">Upload files…</button>
+          <button id="menuUploadFolder">Upload folder…</button>
+        </div>
+      </div>
+      <button class="tbtn" id="btnDownloadZip" disabled>⇩ Download as ZIP</button>
+      <button class="tbtn" id="btnChmod" disabled>▦ Permissions</button>
+      <button class="tbtn danger" id="btnDelete" disabled>✕ Delete</button>
+      <div class="tb-sep"></div>
+      <button class="tbtn" id="btnRefresh" disabled>↻ Refresh</button>
+    </div>
+    <div class="conn-status" id="connStatus"><span class="pulse"></span><span id="connLabel">Not connected</span></div>
+    <div class="tb-sep"></div>
+    <button class="tbtn" id="btnLogout" title="Log out">⏻ Log out</button>
+  </div>
+
+  <div class="breadcrumb" id="breadcrumb"></div>
+
+  <div class="main">
+    <aside class="tree" id="tree"></aside>
+    <section class="listing">
+      <table>
+        <thead>
+          <tr>
+            <th style="width:34px;"><input type="checkbox" id="selectAll"></th>
+            <th>Name</th>
+            <th class="num" style="width:100px;">Size</th>
+            <th style="width:130px;">Permissions</th>
+            <th style="width:170px;">Modified</th>
+          </tr>
+        </thead>
+        <tbody id="listingBody"></tbody>
+      </table>
+      <div class="empty-state" id="emptyState" style="display:none;">
+        <b id="emptyStateTitle">Not connected</b>
+        <span id="emptyStateSub">Open Site Manager to connect to an FTP or SFTP server.</span>
+      </div>
+    </section>
+  </div>
+
+  <div class="statusbar">
+    <span id="selectionSummary">0 objects selected</span>
+    <span id="logMessage">Ready.</span>
+  </div>
+
+  <div class="selection-bar" id="selectionBar">
+    <span class="sb-count" id="sbCount">0 selected</span>
+    <div class="sb-sep"></div>
+    <button class="tbtn" id="sbDownloadZip">⇩ Download as ZIP</button>
+    <button class="tbtn" id="sbChmod">▦ Permissions</button>
+    <button class="tbtn danger" id="sbDelete">✕ Delete</button>
+    <div class="sb-spacer"></div>
+    <button class="tbtn" id="sbClear">Clear selection</button>
+  </div>
+</div>
+
+<input type="file" id="fileInputFiles" multiple style="display:none">
+<input type="file" id="fileInputFolder" webkitdirectory directory multiple style="display:none">
+
+<!-- ============ Site Manager Modal ============ -->
+<div class="overlay" id="siteManagerOverlay">
+  <div class="modal wide">
+    <div class="modal-head"><h2>Site Manager</h2><button class="x" data-close="siteManagerOverlay">✕</button></div>
+    <div class="modal-body">
+      <div class="sm-body">
+        <div class="sm-list">
+          <div class="sm-list-actions">
+            <button class="btn" id="smNewSite">+ New site</button>
+          </div>
+          <div id="smSiteList"></div>
+        </div>
+        <div class="sm-form" id="smForm">
+          <div class="empty-sites">Select a site on the left, or create a new one.</div>
+        </div>
+      </div>
+      <div class="note">Saved sites (including passwords) are stored encrypted on your server, not in the browser. "Connect" opens a real FTP or SFTP socket from the backend.</div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn" data-close="siteManagerOverlay">Close</button>
+      <button class="btn" id="smDelete" style="display:none;">Delete site</button>
+      <button class="btn primary" id="smSave" style="display:none;">Save</button>
+      <button class="btn primary" id="smConnect" style="display:none;">Connect</button>
+    </div>
+  </div>
+</div>
+
+<!-- ============ CHMOD Modal ============ -->
+<div class="overlay" id="chmodOverlay">
+  <div class="modal">
+    <div class="modal-head"><h2>Change Permissions</h2><button class="x" data-close="chmodOverlay">✕</button></div>
+    <div class="modal-body">
+      <div class="chmod-target" id="chmodTarget"></div>
+      <div class="dip-panel">
+        <div class="dip-group">
+          <div class="dip-label">Owner</div>
+          <div class="dip-switches" data-scope="owner">
+            <div class="dip-sw" data-bit="4"><div class="dip-led"></div><div class="dip-tag">R</div></div>
+            <div class="dip-sw" data-bit="2"><div class="dip-led"></div><div class="dip-tag">W</div></div>
+            <div class="dip-sw" data-bit="1"><div class="dip-led"></div><div class="dip-tag">X</div></div>
+          </div>
+        </div>
+        <div class="dip-group">
+          <div class="dip-label">Group</div>
+          <div class="dip-switches" data-scope="group">
+            <div class="dip-sw" data-bit="4"><div class="dip-led"></div><div class="dip-tag">R</div></div>
+            <div class="dip-sw" data-bit="2"><div class="dip-led"></div><div class="dip-tag">W</div></div>
+            <div class="dip-sw" data-bit="1"><div class="dip-led"></div><div class="dip-tag">X</div></div>
+          </div>
+        </div>
+        <div class="dip-group">
+          <div class="dip-label">Public</div>
+          <div class="dip-switches" data-scope="other">
+            <div class="dip-sw" data-bit="4"><div class="dip-led"></div><div class="dip-tag">R</div></div>
+            <div class="dip-sw" data-bit="2"><div class="dip-led"></div><div class="dip-tag">W</div></div>
+            <div class="dip-sw" data-bit="1"><div class="dip-led"></div><div class="dip-tag">X</div></div>
+          </div>
+        </div>
+      </div>
+      <div class="octal-readout">
+        <input type="text" id="octalInput" maxlength="3" value="644">
+        <span class="rwx-readout" id="rwxReadout">rw-r--r--</span>
+      </div>
+      <div class="recursive-note" id="chmodFolderNote" style="display:none;">One or more selected items are folders — you'll be asked whether to apply this recursively.</div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn" data-close="chmodOverlay">Cancel</button>
+      <button class="btn primary" id="chmodApply">Apply</button>
+    </div>
+  </div>
+</div>
+
+<!-- ============ Recursive confirm ============ -->
+<div class="overlay" id="recursiveOverlay">
+  <div class="modal" style="width:440px;">
+    <div class="modal-head"><h2>Apply recursively?</h2><button class="x" data-close="recursiveOverlay">✕</button></div>
+    <div class="modal-body">
+      <p id="recursiveText" style="margin:0 0 6px;">One or more selected items are folders. Apply the new permissions to all subfolders and files inside them too?</p>
+    </div>
+    <div class="modal-foot">
+      <button class="btn" data-close="recursiveOverlay">Cancel</button>
+      <button class="btn" id="recNo">Selected items only</button>
+      <button class="btn primary" id="recYes">Apply recursively</button>
+    </div>
+  </div>
+</div>
+
+<!-- ============ Delete confirm ============ -->
+<div class="overlay" id="deleteConfirmOverlay">
+  <div class="modal" style="width:440px;">
+    <div class="modal-head"><h2>Delete selected items?</h2><button class="x" data-close="deleteConfirmOverlay">✕</button></div>
+    <div class="modal-body">
+      <p id="deleteConfirmText" style="margin:0;">This cannot be undone.</p>
+    </div>
+    <div class="modal-foot">
+      <button class="btn" data-close="deleteConfirmOverlay">Cancel</button>
+      <button class="btn danger" id="deleteConfirmYes">Delete</button>
+    </div>
+  </div>
+</div>
+
+<!-- ============ Generic result modal ============ -->
+<div class="overlay" id="resultOverlay">
+  <div class="modal">
+    <div class="modal-head"><h2 id="resultTitle">Result</h2><button class="x" data-close="resultOverlay">✕</button></div>
+    <div class="modal-body" id="resultBody"></div>
+    <div class="modal-foot"><button class="btn primary" data-close="resultOverlay">Done</button></div>
+  </div>
+</div>
+
+<div class="progress-stack" id="progressStack"></div>
+<div class="toast" id="toast"></div>
+
+<script>
+(function(){
+"use strict";
+
+/* ===================== STATE ===================== */
+let connected = false;
+let currentProtocol = null, currentHost = null, currentSiteName = null;
+let currentPath = "/";
+let entries = [];                 // current directory listing
+let selection = new Set();        // full remote paths
+let sites = [];
+let activeSiteId = null;
+let treeExpanded = { "/": true };
+let treeChildren = {};            // path -> array of folder entries (lazy)
+
+function log(msg){ document.getElementById("logMessage").textContent = msg; }
+function toast(msg, isError){
+  const t = document.getElementById("toast");
+  t.textContent = msg;
+  t.className = "toast show" + (isError ? " error" : "");
+  clearTimeout(toast._h);
+  toast._h = setTimeout(()=> t.classList.remove("show"), 3200);
+}
+function escapeHtml(s){
+  return String(s==null?"":s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+}
+function joinPath(dir, name){
+  if(dir === "/" || dir === "") return "/" + name;
+  return dir.replace(/\/+$/,"") + "/" + name;
+}
+function parentPath(p){
+  if(p === "/" || !p) return "/";
+  const segs = p.split("/").filter(Boolean);
+  segs.pop();
+  return segs.length ? "/" + segs.join("/") : "/";
+}
+function fmtSize(n){
+  if(n === null || n === undefined) return "—";
+  if(n === 0) return "0 B";
+  const units = ["B","KB","MB","GB","TB"];
+  let i = 0, v = n;
+  while(v >= 1024 && i < units.length-1){ v/=1024; i++; }
+  return (i===0 ? v : v.toFixed(1)) + " " + units[i];
+}
+
+/* ===================== PROGRESS (uploads / downloads / zip / chmod) =====================
+   One card per operation, each backed by its own SSE connection to
+   /api/files/progress/:opId. Start a card *before* firing the request that
+   does the work (both share the same opId) so the very first server-side
+   progress update isn't missed. */
+const Progress = (function(){
+  const stack = document.getElementById("progressStack");
+
+  function newOpId(){
+    if(window.crypto && crypto.randomUUID) return crypto.randomUUID();
+    return "op-" + Date.now() + "-" + Math.random().toString(36).slice(2);
+  }
+  function fmtEta(ms){
+    if(!ms || ms <= 0) return "";
+    const s = Math.round(ms/1000);
+    if(s < 60) return s + "s left";
+    return Math.floor(s/60) + "m " + (s%60) + "s left";
+  }
+  function phaseLabel(s){
+    if(s.status === "error") return s.error || "Failed";
+    if(s.status === "done") return s.label || "Done";
+    if(s.phase === "verifying-archive") return "Verifying archive…";
+    if(s.currentFile) return s.currentFile;
+    if(s.phase === "verifying") return "Verifying selection…";
+    if(s.phase === "scanning") return "Scanning…";
+    if(s.phase === "receiving") return "Receiving…";
+    return s.label || "Working…";
+  }
+
+  function render(el, s){
+    el.classList.toggle("error", s.status === "error");
+    el.classList.toggle("done", s.status === "done");
+    const knowsExtent = !!(s.bytesTotal || s.total);
+    el.classList.toggle("indeterminate", s.status === "running" && !knowsExtent);
+    const pct = Math.max(0, Math.min(100, s.percent || 0));
+    el.querySelector(".pc-bar-fill").style.width = pct + "%";
+    el.querySelector(".pc-file").textContent = phaseLabel(s);
+
+    const bits = [];
+    if(s.status === "running"){
+      if(knowsExtent) bits.push(pct + "%");
+      if(s.total) bits.push(s.processed + " / " + s.total);
+      else if(s.foundCount) bits.push(s.foundCount + " found");
+      if(s.bytesTotal) bits.push(fmtSize(s.bytesProcessed) + " / " + fmtSize(s.bytesTotal));
+      if(s.etaMs) bits.push(fmtEta(s.etaMs));
+    }
+    el.querySelector(".pc-stats").textContent = bits.join(" · ");
+  }
+
+  const cards = new Map(); // opId -> {es, el}
+
+  function start(title){
+    const opId = newOpId();
+    const el = document.createElement("div");
+    el.className = "progress-card indeterminate";
+    el.innerHTML =
+      '<div class="pc-head"><span class="pc-title"></span><button class="pc-dismiss" style="display:none;">✕</button></div>' +
+      '<div class="pc-bar-track"><div class="pc-bar-fill"></div></div>' +
+      '<div class="pc-meta"><span class="pc-file">Starting…</span><span class="pc-stats"></span></div>';
+    el.querySelector(".pc-title").textContent = title;
+    stack.appendChild(el);
+
+    function closeCard(){
+      const c = cards.get(opId);
+      if(!c) return;
+      try{ c.es.close(); }catch(e){}
+      c.el.remove();
+      cards.delete(opId);
+    }
+    el.querySelector(".pc-dismiss").addEventListener("click", closeCard);
+
+    const es = new EventSource("/api/files/progress/" + encodeURIComponent(opId));
+    es.onmessage = (ev) => {
+      let s;
+      try{ s = JSON.parse(ev.data); }catch(e){ return; }
+      render(el, s);
+      if(s.status === "done" || s.status === "error"){
+        try{ es.close(); }catch(e){}
+        el.querySelector(".pc-dismiss").style.display = "inline-block";
+        if(s.status === "done") setTimeout(closeCard, 3000);
+      }
+    };
+    cards.set(opId, {es, el, close: closeCard});
+    return opId;
+  }
+
+  // For when the request fails client-side (network drop, etc.) before the
+  // server ever gets to call progress.fail() itself.
+  function fail(opId, message){
+    const c = cards.get(opId);
+    if(!c) return;
+    try{ c.es.close(); }catch(e){}
+    render(c.el, {status:"error", error: message});
+    c.el.querySelector(".pc-dismiss").style.display = "inline-block";
+  }
+
+  return { start, fail };
+})();
+
+async function api(method, url, body, isForm){
+  const opts = { method, credentials: "same-origin" };
+  if(body !== undefined){
+    if(isForm){ opts.body = body; }
+    else { opts.headers = {"Content-Type":"application/json"}; opts.body = JSON.stringify(body); }
+  }
+  const r = await fetch(url, opts);
+  let data = null;
+  const ct = r.headers.get("content-type") || "";
+  if(ct.indexOf("application/json") !== -1){
+    data = await r.json().catch(()=>null);
+  }
+  if(!r.ok){
+    const msg = (data && data.error) ? data.error : ("Request failed (" + r.status + ")");
+    const err = new Error(msg);
+    err.status = r.status;
+    throw err;
+  }
+  return data;
+}
+
+/* ===================== AUTH / LOGIN ===================== */
+async function checkSession(){
+  try{
+    const s = await api("GET", "/api/auth/session");
+    if(s.loggedIn) showApp();
+    else showLogin();
+  }catch(e){ showLogin(); }
+}
+function showLogin(){
+  document.getElementById("loginWrap").classList.remove("hide");
+  document.getElementById("app").classList.remove("show");
+  document.getElementById("loginPass").value = "";
+  setTimeout(()=> document.getElementById("loginUser").focus(), 30);
+}
+async function showApp(){
+  document.getElementById("loginWrap").classList.add("hide");
+  document.getElementById("app").classList.add("show");
+  await loadSites();
+  const status = await api("GET","/api/files/status").catch(()=>({connected:false}));
+  if(status.connected){
+    connected = true;
+    currentProtocol = status.protocol; currentHost = status.host; currentSiteName = status.siteName;
+    setConnUI(true);
+    await navigateTo("/");
+  } else {
+    setConnUI(false);
+    renderEmptyDisconnected();
+  }
+}
+document.getElementById("loginBtn").addEventListener("click", doLogin);
+document.getElementById("loginPass").addEventListener("keydown", e=>{ if(e.key==="Enter") doLogin(); });
+document.getElementById("loginUser").addEventListener("keydown", e=>{ if(e.key==="Enter") doLogin(); });
+async function doLogin(){
+  const user = document.getElementById("loginUser").value.trim();
+  const pass = document.getElementById("loginPass").value;
+  const errBox = document.getElementById("loginError");
+  errBox.classList.remove("show");
+  if(!user || !pass){ errBox.textContent = "Enter a username and password."; errBox.classList.add("show"); return; }
+  try{
+    await api("POST", "/api/auth/login", {username:user, password:pass});
+    showApp();
+  }catch(e){
+    errBox.textContent = e.message;
+    errBox.classList.add("show");
+  }
+}
+document.getElementById("btnLogout").addEventListener("click", async ()=>{
+  await api("POST","/api/auth/logout").catch(()=>{});
+  connected = false;
+  showLogin();
+});
+
+/* ===================== CONNECTION STATUS UI ===================== */
+function setConnUI(isConnected, busy){
+  const el = document.getElementById("connStatus");
+  el.classList.toggle("connected", !!isConnected);
+  el.classList.toggle("busy", !!busy);
+  document.getElementById("connLabel").textContent = isConnected
+    ? "Connected — " + (currentSiteName||currentHost) + " (" + currentProtocol + "://" + currentHost + ")"
+    : (busy ? "Connecting…" : "Not connected");
+  document.getElementById("btnUploadToggle").disabled = !isConnected;
+  document.getElementById("btnRefresh").disabled = !isConnected;
+  if(!isConnected){
+    document.getElementById("btnDownloadZip").disabled = true;
+    document.getElementById("btnChmod").disabled = true;
+    document.getElementById("btnDelete").disabled = true;
+  }
+}
+function renderEmptyDisconnected(){
+  entries = []; selection.clear();
+  document.getElementById("listingBody").innerHTML = "";
+  document.getElementById("emptyState").style.display = "block";
+  document.getElementById("emptyStateTitle").textContent = "Not connected";
+  document.getElementById("emptyStateSub").textContent = "Open Site Manager to connect to an FTP or SFTP server.";
+  document.getElementById("breadcrumb").innerHTML = "";
+  document.getElementById("tree").innerHTML = "";
+  updateSelectionUI();
+}
+
+/* ===================== NAVIGATION / LISTING ===================== */
+async function navigateTo(remotePath){
+  if(!connected) return;
+  try{
+    log("Loading " + remotePath + " …");
+    const res = await api("GET", "/api/files/list?path=" + encodeURIComponent(remotePath));
+    currentPath = res.path;
+    entries = res.entries;
+    selection.clear();
+    renderBreadcrumb();
+    renderListing();
+    renderTree();
+    log("Ready. " + entries.length + " item(s) in " + currentPath);
+  }catch(e){
+    toast(e.message, true);
+    log("Error: " + e.message);
+    if(e.status === 409){ connected = false; setConnUI(false); renderEmptyDisconnected(); }
+  }
+}
+document.getElementById("btnRefresh").addEventListener("click", ()=> navigateTo(currentPath));
+
+function renderBreadcrumb(){
+  const el = document.getElementById("breadcrumb");
+  el.innerHTML = "";
+  const segs = currentPath.split("/").filter(Boolean);
+  const rootSeg = document.createElement("span");
+  rootSeg.className = "seg" + (segs.length===0 ? " current" : "");
+  rootSeg.textContent = "/";
+  rootSeg.addEventListener("click", ()=> navigateTo("/"));
+  el.appendChild(rootSeg);
+  let acc = "";
+  segs.forEach((s,i)=>{
+    acc += "/" + s;
+    const slash = document.createElement("span");
+    slash.className = "slash"; slash.textContent = "›";
+    el.appendChild(slash);
+    const seg = document.createElement("span");
+    seg.className = "seg" + (i===segs.length-1 ? " current" : "");
+    seg.textContent = s;
+    const target = acc;
+    seg.addEventListener("click", ()=> navigateTo(target));
+    el.appendChild(seg);
+  });
+}
+
+function iconFor(entry){
+  return entry.type === "folder" ? "📁" : "📄";
+}
+
+function renderListing(){
+  const body = document.getElementById("listingBody");
+  body.innerHTML = "";
+  const empty = document.getElementById("emptyState");
+  if(!connected){ renderEmptyDisconnected(); return; }
+  if(entries.length === 0){
+    empty.style.display = "block";
+    document.getElementById("emptyStateTitle").textContent = "This folder is empty";
+    document.getElementById("emptyStateSub").textContent = "Upload files or a folder to get started.";
+  } else {
+    empty.style.display = "none";
+  }
+  entries.forEach(entry=>{
+    const full = joinPath(currentPath, entry.name);
+    const tr = document.createElement("tr");
+    tr.className = selection.has(full) ? "selected" : "";
+    tr.innerHTML =
+      '<td><input type="checkbox" class="rowCheck" ' + (selection.has(full)?"checked":"") + '></td>' +
+      '<td class="col-name"><span class="fico">'+iconFor(entry)+'</span>' +
+        '<span class="name-link '+(entry.type==="folder"?"folder":"")+'">'+escapeHtml(entry.name)+'</span>' +
+        (entry.symlink ? '<span class="locked-badge">symlink</span>' : '') +
+      '</td>' +
+      '<td class="col-size">'+ (entry.type==="folder" ? "—" : fmtSize(entry.size)) +'</td>' +
+      '<td class="col-perm">'+ permChip(entry.permsOctal) +'</td>' +
+      '<td class="col-mod">'+ escapeHtml(entry.modified || "—") +'</td>';
+
+    tr.querySelector(".rowCheck").addEventListener("change", (e)=>{
+      if(e.target.checked) selection.add(full); else selection.delete(full);
+      tr.className = selection.has(full) ? "selected" : "";
+      updateSelectionUI();
+    });
+    tr.querySelector(".name-link").addEventListener("click", ()=>{
+      if(entry.type === "folder") navigateTo(full);
+    });
+    body.appendChild(tr);
+  });
+  document.getElementById("selectAll").checked = entries.length>0 && selection.size === entries.length;
+  updateSelectionUI();
+}
+
+function permChip(octal){
+  if(!octal) return "—";
+  const rwx = d => (d&4?'<b class="perm-r">r</b>':'<span class="perm-off">-</span>') +
+                    (d&2?'<b class="perm-w">w</b>':'<span class="perm-off">-</span>') +
+                    (d&1?'<b class="perm-x">x</b>':'<span class="perm-off">-</span>');
+  const digits = String(octal).padStart(3,"0").split("").map(Number);
+  return '<span class="perm-chip">'+digits.map(rwx).join("")+'</span> <span style="color:var(--ink-soft)">'+octal+'</span>';
+}
+
+function updateSelectionUI(){
+  const n = selection.size;
+  document.getElementById("selectionSummary").textContent = n + " object" + (n===1?"":"s") + " selected";
+  document.getElementById("btnDownloadZip").disabled = !connected || n===0;
+  document.getElementById("btnChmod").disabled = !connected || n===0;
+  document.getElementById("btnDelete").disabled = !connected || n===0;
+
+  const showBar = connected && n>0;
+  document.getElementById("selectionBar").classList.toggle("visible", showBar);
+  document.getElementById("app").classList.toggle("has-selection", showBar);
+  document.getElementById("sbCount").textContent = n + " object" + (n===1?"":"s") + " selected";
+  document.getElementById("sbDownloadZip").disabled = !showBar;
+  document.getElementById("sbChmod").disabled = !showBar;
+  document.getElementById("sbDelete").disabled = !showBar;
+}
+
+document.getElementById("selectAll").addEventListener("change", (e)=>{
+  selection.clear();
+  if(e.target.checked){
+    entries.forEach(en => selection.add(joinPath(currentPath, en.name)));
+  }
+  renderListing();
+});
+
+/* ===================== TREE (lazy-loaded) ===================== */
+async function fetchFolderChildren(p){
+  if(treeChildren[p]) return treeChildren[p];
+  const res = await api("GET", "/api/files/list?path=" + encodeURIComponent(p));
+  const folders = res.entries.filter(e=>e.type==="folder");
+  treeChildren[p] = folders;
+  return folders;
+}
+function renderTree(){
+  const el = document.getElementById("tree");
+  el.innerHTML = "";
+  if(!connected) return;
+  el.appendChild(buildTreeNode("/", "/", 0));
+}
+function buildTreeNode(path, label, depth){
+  const wrap = document.createElement("div");
+  wrap.className = "tree-node";
+  const row = document.createElement("div");
+  row.className = "tree-row" + (path === currentPath ? " active" : "");
+  row.style.paddingLeft = (8 + depth*14) + "px";
+  const expanded = !!treeExpanded[path];
+  row.innerHTML =
+    '<span class="caret">'+(expanded?"▾":"▸")+'</span>' +
+    '<span class="ficon">📁</span>' +
+    '<span class="tlabel">'+escapeHtml(label)+'</span>';
+  const childrenBox = document.createElement("div");
+  childrenBox.className = "tree-children" + (expanded ? " expanded" : "");
+
+  row.querySelector(".caret").addEventListener("click", async (e)=>{
+    e.stopPropagation();
+    treeExpanded[path] = !treeExpanded[path];
+    if(treeExpanded[path]){
+      row.querySelector(".caret").textContent = "▾";
+      childrenBox.innerHTML = '<div class="tree-empty"><span class="spinner-mini"></span> loading…</div>';
+      childrenBox.classList.add("expanded");
+      try{
+        const kids = await fetchFolderChildren(path);
+        childrenBox.innerHTML = "";
+        if(kids.length===0){ childrenBox.innerHTML = '<div class="tree-empty">No subfolders</div>'; }
+        kids.forEach(k=> childrenBox.appendChild(buildTreeNode(joinPath(path,k.name), k.name, depth+1)));
+      }catch(err){
+        childrenBox.innerHTML = '<div class="tree-empty">'+escapeHtml(err.message)+'</div>';
+      }
+    } else {
+      row.querySelector(".caret").textContent = "▸";
+      childrenBox.classList.remove("expanded");
+    }
+  });
+  row.addEventListener("click", ()=> navigateTo(path));
+
+  wrap.appendChild(row);
+  wrap.appendChild(childrenBox);
+
+  if(expanded && treeChildren[path]){
+    treeChildren[path].forEach(k=> childrenBox.appendChild(buildTreeNode(joinPath(path,k.name), k.name, depth+1)));
+  }
+  return wrap;
+}
+
+/* ===================== SITE MANAGER ===================== */
+async function loadSites(){
+  try{ sites = await api("GET","/api/sites"); }catch(e){ sites = []; }
+}
+function renderSiteList(){
+  const list = document.getElementById("smSiteList");
+  list.innerHTML = "";
+  if(!sites.length){ list.innerHTML = '<div class="empty-sites">No saved sites yet.</div>'; return; }
+  sites.forEach(s=>{
+    const row = document.createElement("div");
+    row.className = "sm-site" + (s.id===activeSiteId ? " active":"");
+    row.textContent = s.name || "(unnamed site)";
+    row.addEventListener("click", ()=>{ activeSiteId = s.id; renderSiteManager(); });
+    list.appendChild(row);
+  });
+}
+function renderSiteForm(){
+  const form = document.getElementById("smForm");
+  const site = sites.find(s=>s.id===activeSiteId);
+  const saveBtn = document.getElementById("smSave");
+  const delBtn = document.getElementById("smDelete");
+  const connBtn = document.getElementById("smConnect");
+  if(!site){
+    form.innerHTML = '<div class="empty-sites">Select a site on the left, or create a new one.</div>';
+    saveBtn.style.display="none"; delBtn.style.display="none"; connBtn.style.display="none";
+    return;
+  }
+  saveBtn.style.display="inline-block"; delBtn.style.display="inline-block"; connBtn.style.display="inline-block";
+  form.innerHTML =
+    '<div class="field"><label>Connection name</label><input id="fName" value="'+escapeHtml(site.name||"")+'"></div>' +
+    '<div class="field-row">' +
+      '<div class="field"><label>Host</label><input id="fHost" value="'+escapeHtml(site.host||"")+'" placeholder="ftp.example.com"></div>' +
+      '<div class="field" style="max-width:110px;"><label>Port</label><input id="fPort" value="'+escapeHtml(site.port||"")+'" placeholder="21"></div>' +
+    '</div>' +
+    '<div class="field"><label>Protocol</label><select id="fProtocol">' +
+      '<option value="FTP"'+(site.protocol==="FTP"?" selected":"")+'>FTP</option>' +
+      '<option value="SFTP"'+(site.protocol==="SFTP"?" selected":"")+'>SFTP</option>' +
+    '</select></div>' +
+    '<div class="field" id="secureField" style="'+(site.protocol==="SFTP"?"display:none;":"")+'">' +
+      '<label><input type="checkbox" id="fSecure" '+(site.secure?"checked":"")+' style="width:auto; margin-right:6px;">Use FTPS (explicit TLS)</label>' +
+    '</div>' +
+    '<div class="field-row">' +
+      '<div class="field"><label>Username</label><input id="fUser" value="'+escapeHtml(site.username||"")+'"></div>' +
+      '<div class="field"><label>Password</label><input id="fPass" type="password" value="'+escapeHtml(site.password||"")+'"></div>' +
+    '</div>' +
+    '<div class="field"><label>Default remote directory</label><input id="fDir" value="'+escapeHtml(site.defaultRemoteDir||"/")+'" placeholder="/"></div>';
+
+  document.getElementById("fProtocol").addEventListener("change", (e)=>{
+    document.getElementById("secureField").style.display = e.target.value==="SFTP" ? "none" : "";
+  });
+}
+function renderSiteManager(){ renderSiteList(); renderSiteForm(); }
+
+document.getElementById("smNewSite").addEventListener("click", ()=>{
+  const site = {id:"", name:"New Site", host:"", port:"21", protocol:"FTP", username:"", password:"", defaultRemoteDir:"/", secure:false};
+  sites.push(site);
+  activeSiteId = "";
+  renderSiteManager();
+});
+document.getElementById("smSave").addEventListener("click", async ()=>{
+  const site = sites.find(s=>s.id===activeSiteId);
+  if(!site) return;
+  const payload = {
+    id: site.id || undefined,
+    name: document.getElementById("fName").value.trim() || "Unnamed site",
+    host: document.getElementById("fHost").value.trim(),
+    port: document.getElementById("fPort").value.trim(),
+    protocol: document.getElementById("fProtocol").value,
+    username: document.getElementById("fUser").value.trim(),
+    password: document.getElementById("fPass").value,
+    defaultRemoteDir: document.getElementById("fDir").value.trim() || "/",
+    secure: document.getElementById("fSecure") ? document.getElementById("fSecure").checked : false,
+  };
+  try{
+    const saved = await api("POST","/api/sites", payload);
+    await loadSites();
+    activeSiteId = saved.id;
+    renderSiteManager();
+    log('Saved site "' + saved.name + '".');
+  }catch(e){ toast(e.message, true); }
+});
+document.getElementById("smDelete").addEventListener("click", async ()=>{
+  const site = sites.find(s=>s.id===activeSiteId);
+  if(site && site.id){ await api("DELETE","/api/sites/"+encodeURIComponent(site.id)).catch(()=>{}); }
+  await loadSites();
+  activeSiteId = null;
+  renderSiteManager();
+});
+document.getElementById("smConnect").addEventListener("click", async ()=>{
+  const site = sites.find(s=>s.id===activeSiteId);
+  if(!site || !site.id){ toast("Save the site before connecting.", true); return; }
+  setConnUI(false, true);
+  log("Connecting to " + site.name + " …");
+  try{
+    const res = await api("POST","/api/files/connect", {siteId: site.id});
+    connected = true;
+    currentProtocol = res.protocol; currentHost = res.host; currentSiteName = res.siteName;
+    setConnUI(true);
+    treeChildren = {}; treeExpanded = {"/":true};
+    closeOverlay("siteManagerOverlay");
+    await navigateTo(res.startDir || "/");
+    log('Connected to "' + site.name + '".');
+  }catch(e){
+    setConnUI(false);
+    toast(e.message, true);
+    log("Connection failed: " + e.message);
+  }
+});
+
+/* ===================== CHMOD ===================== */
+let chmodTargetItems = [];
+function openChmodModal(){
+  chmodTargetItems = [...selection].map(p=>{
+    const entry = entries.find(en => joinPath(currentPath, en.name) === p);
+    return { path: p, type: entry ? entry.type : "file", name: entry ? entry.name : p };
+  });
+  const n = chmodTargetItems.length;
+  document.getElementById("chmodTarget").innerHTML =
+    n===1 ? ("Changing permissions for <b>"+escapeHtml(chmodTargetItems[0].name)+"</b>")
+          : ("Changing permissions for <b>"+n+" selected items</b>");
+  const hasFolder = chmodTargetItems.some(i=>i.type==="folder");
+  document.getElementById("chmodFolderNote").style.display = hasFolder ? "block" : "none";
+
+  let common = chmodTargetItems.length ? chmodTargetItems[0].octal : null;
+  const first = entries.find(en => joinPath(currentPath, en.name) === chmodTargetItems[0].path);
+  const startOctal = (first && first.permsOctal) || "644";
+  setOctal(startOctal);
+  openOverlay("chmodOverlay");
+}
+function setOctal(octal){
+  document.getElementById("octalInput").value = octal;
+  syncDipFromOctal();
+}
+function syncDipFromOctal(){
+  const val = document.getElementById("octalInput").value.padStart(3,"0").split("").map(Number);
+  ["owner","group","other"].forEach((scope,i)=>{
+    const d = val[i]||0;
+    document.querySelectorAll('.dip-switches[data-scope="'+scope+'"] .dip-sw').forEach(sw=>{
+      const bit = Number(sw.dataset.bit);
+      sw.classList.toggle("on", !!(d & bit));
+    });
+  });
+  updateRwxReadout();
+}
+function readOctalFromDips(){
+  const digit = scope => {
+    let d = 0;
+    document.querySelectorAll('.dip-switches[data-scope="'+scope+'"] .dip-sw.on').forEach(sw=> d += Number(sw.dataset.bit));
+    return d;
+  };
+  return "" + digit("owner") + digit("group") + digit("other");
+}
+function updateRwxReadout(){
+  const o = readOctalFromDips();
+  const rwx = d => (d&4?"r":"-")+(d&2?"w":"-")+(d&1?"x":"-");
+  const digits = o.split("").map(Number);
+  document.getElementById("rwxReadout").textContent = digits.map(rwx).join("");
+}
+document.querySelectorAll(".dip-sw").forEach(sw=>{
+  sw.addEventListener("click", ()=>{
+    sw.classList.toggle("on");
+    document.getElementById("octalInput").value = readOctalFromDips();
+    updateRwxReadout();
+  });
+});
+document.getElementById("octalInput").addEventListener("input", (e)=>{
+  e.target.value = e.target.value.replace(/[^0-7]/g,"").slice(0,3);
+  if(e.target.value.length===3) syncDipFromOctal();
+});
+document.getElementById("btnChmod").addEventListener("click", openChmodModal);
+
+async function applyChmod(recursive){
+  const octal = document.getElementById("octalInput").value.padStart(3,"0");
+  if(!/^[0-7]{3}$/.test(octal)){ toast("Enter a valid 3-digit octal value.", true); return; }
+  const opId = Progress.start("Applying permissions" + (recursive ? " (recursive)" : ""));
+  try{
+    const res = await api("POST","/api/files/chmod", {items: chmodTargetItems, octal, recursive: !!recursive, opId});
+    const fails = res.results.filter(r=>!r.ok);
+    closeOverlay("recursiveOverlay"); closeOverlay("chmodOverlay");
+    await navigateTo(currentPath);
+    if(fails.length){
+      showResultModal("Permissions applied with " + fails.length + " error(s)", fails);
+    } else {
+      log("Applied permissions " + octal + " to " + res.results.length + " item(s).");
+    }
+  }catch(e){ Progress.fail(opId, e.message); toast(e.message, true); }
+}
+document.getElementById("chmodApply").addEventListener("click", ()=>{
+  const hasFolder = chmodTargetItems.some(i=>i.type==="folder");
+  if(hasFolder) openOverlay("recursiveOverlay");
+  else applyChmod(false);
+});
+document.getElementById("recYes").addEventListener("click", ()=> applyChmod(true));
+document.getElementById("recNo").addEventListener("click", ()=> applyChmod(false));
+
+function showResultModal(title, fails){
+  document.getElementById("resultTitle").textContent = title;
+  document.getElementById("resultBody").innerHTML = fails.map(f=>
+    '<div class="result-item"><span>'+escapeHtml(f.path)+'</span><span class="why">'+escapeHtml(f.error||"")+'</span></div>'
+  ).join("");
+  openOverlay("resultOverlay");
+}
+
+/* ===================== DELETE ===================== */
+document.getElementById("btnDelete").addEventListener("click", ()=>{
+  const n = selection.size;
+  document.getElementById("deleteConfirmText").textContent =
+    "You're about to delete " + n + " item" + (n>1?"s":"") + " from the server. This cannot be undone.";
+  openOverlay("deleteConfirmOverlay");
+});
+document.getElementById("deleteConfirmYes").addEventListener("click", async ()=>{
+  closeOverlay("deleteConfirmOverlay");
+  const items = [...selection].map(p=>{
+    const entry = entries.find(en => joinPath(currentPath, en.name) === p);
+    return { path: p, type: entry ? entry.type : "file" };
+  });
+  if(!items.length) return;
+  const opId = Progress.start("Deleting " + items.length + " item" + (items.length>1?"s":""));
+  try{
+    const res = await api("POST","/api/files/delete", {items, opId});
+    const fails = res.results.filter(r=>!r.ok);
+    await navigateTo(currentPath);
+    if(fails.length) showResultModal("Deleted with " + fails.length + " error(s)", fails);
+    else log("Deleted " + res.results.length + " item(s).");
+  }catch(e){ Progress.fail(opId, e.message); toast(e.message, true); log("Delete failed: " + e.message); }
+});
+
+/* ===================== UPLOAD ===================== */
+document.getElementById("btnUploadToggle").addEventListener("click", (e)=>{
+  e.stopPropagation();
+  if(e.target.disabled) return;
+  document.getElementById("uploadDropdown").classList.toggle("open");
+});
+document.addEventListener("click", ()=> document.getElementById("uploadDropdown").classList.remove("open"));
+document.getElementById("menuUploadFiles").addEventListener("click", ()=> document.getElementById("fileInputFiles").click());
+document.getElementById("menuUploadFolder").addEventListener("click", ()=> document.getElementById("fileInputFolder").click());
+document.getElementById("fileInputFiles").addEventListener("change", (e)=>{ handleFilesUpload(e.target.files); e.target.value=""; });
+document.getElementById("fileInputFolder").addEventListener("change", (e)=>{ handleFilesUpload(e.target.files); e.target.value=""; });
+
+async function handleFilesUpload(fileList){
+  if(!connected || !fileList || !fileList.length) return;
+  const files = Array.from(fileList);
+  const relPaths = files.map(f => f.webkitRelativePath || f.name);
+  const fd = new FormData();
+  files.forEach(f => fd.append("files", f));
+  fd.append("relPaths", JSON.stringify(relPaths));
+  fd.append("targetDir", currentPath);
+  log("Uploading " + files.length + " item(s)…");
+  const opId = Progress.start("Uploading " + files.length + " item" + (files.length>1?"s":""));
+  try{
+    const res = await api("POST","/api/files/upload?opId=" + encodeURIComponent(opId), fd, true);
+    const fails = res.results.filter(r=>!r.ok);
+    await navigateTo(currentPath);
+    if(fails.length) showResultModal("Uploaded with " + fails.length + " error(s)", fails.map(f=>({path:f.name, error:f.error})));
+    else log("Uploaded " + res.results.length + " item(s).");
+  }catch(e){ Progress.fail(opId, e.message); toast(e.message, true); log("Upload failed: " + e.message); }
+}
+
+/* ===================== DOWNLOAD AS ZIP ===================== */
+document.getElementById("btnDownloadZip").addEventListener("click", async ()=>{
+  const items = [...selection].map(p=>{
+    const entry = entries.find(en => joinPath(currentPath, en.name) === p);
+    return { path: p, name: entry ? entry.name : p.split("/").pop(), type: entry ? entry.type : "file" };
+  });
+  if(!items.length) return;
+  log("Preparing ZIP for download…");
+  const opId = Progress.start("Preparing ZIP (" + items.length + " item" + (items.length>1?"s":"") + ")");
+  try{
+    // Step 1: server scans, verifies, and builds the ZIP to a temp file,
+    // then verifies it's complete before telling us it's ready. This
+    // request only returns a JSON summary — no bytes of the zip itself.
+    const r = await fetch("/api/files/download-zip", {
+      method: "POST", credentials:"same-origin",
+      headers: {"Content-Type":"application/json"},
+      body: JSON.stringify({items, opId})
+    });
+    const d = await r.json().catch(()=>({}));
+    if(!r.ok){
+      throw new Error(d.error || "ZIP creation failed (" + r.status + ")");
+    }
+    const s = d.summary || {};
+
+    // Step 2: only now — after the server has confirmed the archive is
+    // complete and verified — actually fetch the file bytes.
+    const a = document.createElement("a");
+    a.href = d.downloadUrl; a.download = d.filename || "download.zip";
+    document.body.appendChild(a); a.click(); a.remove();
+
+    const summaryLine = "ZIP ready — " + s.filesAdded + " file(s), " + s.foldersAdded + " folder(s) verified and included.";
+    if(s.itemsFailed){
+      log(summaryLine + " " + s.itemsFailed + " item(s) could not be included.");
+      showResultModal(
+        "ZIP ready with " + s.itemsFailed + " skipped item(s)",
+        (s.failed||[]).map(f=>({path:f.path, error:f.reason}))
+      );
+    } else {
+      log(summaryLine);
+    }
+  }catch(e){ Progress.fail(opId, e.message); toast(e.message, true); log("Download failed: " + e.message); }
+});
+
+/* ===================== OVERLAY HELPERS ===================== */
+function openOverlay(id){ document.getElementById(id).classList.add("open"); }
+function closeOverlay(id){ document.getElementById(id).classList.remove("open"); }
+document.querySelectorAll("[data-close]").forEach(btn=>{
+  btn.addEventListener("click", ()=> closeOverlay(btn.dataset.close));
+});
+document.querySelectorAll(".overlay").forEach(ov=>{
+  ov.addEventListener("click", (e)=>{ if(e.target===ov) closeOverlay(ov.id); });
+});
+document.getElementById("btnSiteManager").addEventListener("click", ()=>{
+  renderSiteManager();
+  openOverlay("siteManagerOverlay");
+});
+
+/* ===================== SELECTION BAR ===================== */
+document.getElementById("sbDownloadZip").addEventListener("click", ()=>{
+  if(!document.getElementById("sbDownloadZip").disabled) document.getElementById("btnDownloadZip").click();
+});
+document.getElementById("sbChmod").addEventListener("click", ()=>{
+  if(!document.getElementById("sbChmod").disabled) document.getElementById("btnChmod").click();
+});
+document.getElementById("sbDelete").addEventListener("click", ()=>{
+  if(!document.getElementById("sbDelete").disabled) document.getElementById("btnDelete").click();
+});
+document.getElementById("sbClear").addEventListener("click", ()=>{
+  selection.clear();
+  document.querySelectorAll(".rowCheck").forEach(cb=> cb.checked=false);
+  document.querySelectorAll("#listingBody tr").forEach(tr=> tr.className="");
+  document.getElementById("selectAll").checked = false;
+  updateSelectionUI();
+});
+
+/* ===================== INIT ===================== */
+checkSession();
+
+})();
+</script>
+</body>
+</html>
